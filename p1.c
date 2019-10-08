@@ -11,48 +11,66 @@ Written By:
 #include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
-
+#include <semaphore.h>
+#include <fcntl.h>
 #include "shmSegment.h"
 
 int main( int argc , char *argv[] )
 {
-   int        shmid ;
-   key_t      shmkey;
-   int        shmflg;
+   int shmkey, shmid, shmflg; 
+   int semflg, semmode;
+   sem_t *mutex;
+   sem_t *p1Started, *p1Done, *p2Started, *p2Done;
    shmData    *p;
 
-   shmkey = ftok("shmSegment.h" , 0 ) ;
    shmflg = IPC_CREAT | S_IRUSR | S_IWUSR ;
-
-   shmid  = shmget( shmkey , SHMEM_SIZE , shmflg ) ;
-   if ( shmid == -1 ) {
-      printf ("\nFailed to get shared memory id=%d\n" , shmid );
-      perror("Reason: ");
-      exit( -1 ) ;
-   }
-
-   p  = (shmData *) shmat( shmid , NULL , 0 ); // Attach for R/W
-   if ( p == (shmData *) -1 ) {
-      printf ("\nFailed to attach shared memory id=%d\n" , shmid );
-      perror("Reason: ");
-      exit( -1 ) ;
-   }
-
-   /* Initialize data in the shared memory  */ 
-   p->counter = 0;  p->p1Done  = 0;   p->p1Started = 1 ; 
+   semflg = O_CREAT;
+   semmode = S_IRUSR | S_IWUSR;
+   mutex = sem_open("/mutex_albrigne", semflg, semmode, 1);
+   if (mutex == SEM_FAILED) { perror("sem_open failed"); exit(-1); }
    
+   p1Started = sem_open("/p1Started_albrigne", semflg, semmode, 1);
+   if (p1Started == SEM_FAILED) { perror("sem_open failed"); exit(-1); }
+   
+   p1Done = sem_open("/p1Done_albrigne", semflg, semmode, 1);
+   if (mutex == SEM_FAILED) { perror("sem_open failed"); exit(-1); }
+   
+   p2Started = sem_open("/p2Started_albrigne", semflg, semmode, 1);
+   if (p1Started == SEM_FAILED) { perror("sem_open failed"); exit(-1); }
+   
+   p2Done = sem_open("/p2Done_albrigne", semflg, semmode, 1);
+   if (p1Started == SEM_FAILED) { perror("sem_open failed"); exit(-1); }
+
+   shmkey =  ftok("shmSegment.h", 0);
+   shmid = shmget (shmkey, SHMEM_SIZE, shmflg);
+   if (shmid == 01) {
+       printf("\nFailed to get shared memory id = %d\n", shmid);
+       perror("Reason: ");
+       exit(-1);
+   }
+
+   p = (shmData *) shmat(shmid, NULL, 0);
+   if (p == (shmData*) -1) {
+       printf ("\nFailed to attach shared memory id=%d\n", shmid);
+       perror("Reason: ");
+       exit(-1);
+   }
+
+   p->counter = 0;
+   
+   if (sem_post(p1Started) != 0) { perror("p1_start post failed"); exit(-1); }
+
    printf("P1 started. LARGEINT = %10lu\n" , LARGEINT );
    printf("Waiting for P2 to start, too.\n");
-   /* Wait for Other Process to start   */
-   while ( p-> p2Started != 1 ) ;
+   if (sem_wait(p2Started) != 0) { perror("p2_started_wait failed"); exit(-1); };
 
    printf("P1 now will increment the counter\n");
    for( unsigned i=1 ; i <= LARGEINT ; i++ )
         p->counter ++;
 
-   p->p1Done  = 1; 
+   if (sem_post(p1Done) != 0) { perror("p1_done post failed"); exit(-1); }
    printf("P1 is done. Waiting for P2 to finish, too.\n");
-   while ( p-> p2Done != 1 ) ;
+   if (sem_wait(p2Done) != 0) { perror("p2_done wait failed"); exit(-1); }
 
    unsigned long expected = LARGEINT << 1 ;  // 2*LARGEINT
    printf("Final counter value = %10u  Expecting: %10lu" 

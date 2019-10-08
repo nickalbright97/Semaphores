@@ -9,8 +9,6 @@ Written By:
 
 
 typedef struct {
-    int         p1Started , p2Started ;
-    int         p1Done    , p2Done ;
     unsigned    counter ;
 } shmData ;
 
